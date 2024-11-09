@@ -6,8 +6,8 @@ import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 
 @Data
-@Document(indexName = "index")
-public class Index {
+@Document(indexName = "class")
+public class Class {
     @Field(type = FieldType.Keyword)
     private Long id;
     @Field(type = FieldType.Text, analyzer = "ik_smart")
