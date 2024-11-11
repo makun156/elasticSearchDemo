@@ -2,8 +2,9 @@ package com.elastic.elasticsearchdemo.search;
 
 
 import cn.hutool.json.JSONUtil;
-import com.elastic.elasticsearchdemo.bean.MyClass;
+import com.elastic.elasticsearchdemo.bean.ClassDoc;
 import com.elastic.elasticsearchdemo.response.ResponseBean;
+import org.elasticsearch.action.get.GetRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.RequestOptions;
@@ -27,25 +28,49 @@ public class DocumentController {
     RestHighLevelClient es;
 
     @GetMapping("search/{text}")
-    public ResponseBean search(@PathVariable String text){
+    public ResponseBean search(@PathVariable String text) throws Exception {
+        //ResponseBean bean = matchQuery(text);
+        ResponseBean bean = multiMatchQuery(text);
+        return bean;
+    }
+
+    private ResponseBean multiMatchQuery(String text) throws IOException {
         SearchRequest request = new SearchRequest("class");
         request.source().query(
-                QueryBuilders.boolQuery().queryName("content").must(QueryBuilders.matchQuery("content", text)).mustNot(QueryBuilders.matchQuery("content", "language"))
+                QueryBuilders.multiMatchQuery(text, "name","content")
         );
-        try {
-            SearchResponse search = es.search(request, RequestOptions.DEFAULT);
-            SearchHit[] hits = search.getHits().getHits();
-            ArrayList<MyClass> list = new ArrayList<>();
-            for (SearchHit documentFields : hits) {
-                list.add(JSONUtil.toBean(documentFields.getSourceAsString(), MyClass.class));
-            }
-            ResponseBean bean = new ResponseBean();
-            bean.setData(list);
-            return bean;
-        } catch (IOException e) {
-            e.printStackTrace();
+        SearchResponse search = es.search(request, RequestOptions.DEFAULT);
+        ArrayList<ClassDoc> list = new ArrayList<>();
+        for (SearchHit hit : search.getHits().getHits()) {
+            list.add(JSONUtil.toBean(hit.getSourceAsString(), ClassDoc.class));
         }
-        return null;
+        ResponseBean bean = new ResponseBean();
+        bean.setData(list);
+        return bean;
+    }
+
+    /**
+     * 单个匹配查询
+     */
+    private ResponseBean matchQuery(String text) throws IOException {
+        //1.构建查询请求，查哪个索引库
+        SearchRequest request = new SearchRequest("class");
+        //2.构建查询条件
+        request.source().query(
+                QueryBuilders.matchQuery("content", text)
+        );
+        //3.查询
+        SearchResponse search = es.search(request, RequestOptions.DEFAULT);
+        //4.获取查询结果集
+        SearchHit[] hits = search.getHits().getHits();
+        //5.遍历封装
+        ArrayList<ClassDoc> list = new ArrayList<>();
+        for (SearchHit documentFields : hits) {
+            list.add(JSONUtil.toBean(documentFields.getSourceAsString(), ClassDoc.class));
+        }
+        ResponseBean bean = new ResponseBean();
+        bean.setData(list);
+        return bean;
     }
 
 
