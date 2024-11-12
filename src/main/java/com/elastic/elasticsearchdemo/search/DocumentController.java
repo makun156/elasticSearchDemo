@@ -4,6 +4,7 @@ package com.elastic.elasticsearchdemo.search;
 import cn.hutool.json.JSONUtil;
 import com.elastic.elasticsearchdemo.bean.ClassDoc;
 import com.elastic.elasticsearchdemo.response.ResponseBean;
+import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.get.GetRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
@@ -29,15 +30,44 @@ public class DocumentController {
 
     @GetMapping("search/{text}")
     public ResponseBean search(@PathVariable String text) throws Exception {
+        ResponseBean bean = new ResponseBean();
         //ResponseBean bean = matchQuery(text);
-        ResponseBean bean = multiMatchQuery(text);
+        //ResponseBean bean = multiMatchQuery(text);
+        //boolQuery(text, bean);
+
         return bean;
+    }
+
+    /**
+     * 根据多条字段进行Boolean查询
+     * @param text
+     * @param bean
+     * @throws IOException
+     */
+    private void boolQuery(String text, ResponseBean bean) throws IOException {
+        SearchRequest request = new SearchRequest("class");
+        request.source().query(
+                QueryBuilders.boolQuery()
+                        //必须匹配
+                        .must(QueryBuilders.matchQuery("content", text))
+                        //不能匹配
+                        .mustNot(QueryBuilders.matchQuery("name", "里斯"))
+                        //过滤，必须匹配，不参与算分
+                        .filter(QueryBuilders.matchQuery("name", "李四"))
+        );
+        SearchResponse search = es.search(request, RequestOptions.DEFAULT);
+        SearchHit[] hits = search.getHits().getHits();
+        ArrayList<ClassDoc> list = new ArrayList<>();
+        for (SearchHit hit : hits) {
+            list.add(JSONUtil.toBean(hit.getSourceAsString(), ClassDoc.class));
+        }
+        bean.setData(list);
     }
 
     private ResponseBean multiMatchQuery(String text) throws IOException {
         SearchRequest request = new SearchRequest("class");
         request.source().query(
-                QueryBuilders.multiMatchQuery(text, "name","content")
+                QueryBuilders.multiMatchQuery(text, "name", "content")
         );
         SearchResponse search = es.search(request, RequestOptions.DEFAULT);
         ArrayList<ClassDoc> list = new ArrayList<>();
