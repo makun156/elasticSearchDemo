@@ -4,6 +4,8 @@ import cn.hutool.json.JSONUtil;
 import com.elastic.elasticsearchdemo.bean.ClassDoc;
 import com.elastic.elasticsearchdemo.bean.HotelDoc;
 import com.elastic.elasticsearchdemo.response.ResponseBean;
+import com.elastic.elasticsearchdemo.util.EsUtils;
+import org.apache.lucene.search.highlight.Highlighter;
 import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
@@ -14,6 +16,9 @@ import org.elasticsearch.client.indices.GetIndexRequest;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
+import org.elasticsearch.search.sort.SortOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 @RestController
 @RequestMapping("/document/hotel")
@@ -30,6 +36,8 @@ public class HotelController {
     @Autowired
     RestHighLevelClient es;
 
+    @Autowired
+    EsUtils search;
     @GetMapping("add")
     public String add() throws Exception{
         //CreateIndexRequest hotelIndex = new CreateIndexRequest("hotel");
@@ -78,7 +86,65 @@ public class HotelController {
         //boolQuery(text,bean);
         //termQuery(text, bean);
         //rangeQuery(bean);
+        //List<HotelDoc> hotelDocs = search.matchQuery("hotel", "hotelName", text, HotelDoc.class);
+        //pageQuery(text, bean);
+        //sortQuery(text, bean);
+        highlightQuery(text, bean);
         return bean;
+    }
+
+    private void highlightQuery(String text, ResponseBean bean) throws IOException {
+        SearchRequest request = new SearchRequest("hotel");
+        request.source().query(QueryBuilders.matchQuery("hotelName", text)).sort("price", SortOrder.DESC);
+        request.source().highlighter(SearchSourceBuilder.highlight().field("hotelName"));
+        SearchResponse search = es.search(request, RequestOptions.DEFAULT);
+        SearchHit[] hits = search.getHits().getHits();
+        ArrayList<HotelDoc> hotelDocs = new ArrayList<>();
+        for (SearchHit hit : hits) {
+            hotelDocs.add(JSONUtil.toBean(hit.getSourceAsString(), HotelDoc.class));
+            Map<String, HighlightField> highlightFields = hit.getHighlightFields();
+            for (HighlightField highlightField : highlightFields.values()) {
+                String hotelName = highlightField.getFragments()[0].string();
+                hotelDocs.get(hotelDocs.size() - 1).setHotelName(hotelName);
+            }
+        }
+        bean.setData(hotelDocs);
+    }
+
+    /**
+     * 排序查询
+     * @param text
+     * @param bean
+     * @throws IOException
+     */
+    private void sortQuery(String text, ResponseBean bean) throws IOException {
+        SearchRequest request = new SearchRequest("hotel");
+        request.source().query(QueryBuilders.matchQuery("hotelName", text)).sort("price", SortOrder.DESC);
+        SearchResponse search = es.search(request, RequestOptions.DEFAULT);
+        SearchHit[] hits = search.getHits().getHits();
+        ArrayList<HotelDoc> hotelDocs = new ArrayList<>();
+        for (SearchHit hit : hits) {
+            hotelDocs.add(JSONUtil.toBean(hit.getSourceAsString(), HotelDoc.class));
+        }
+        bean.setData(hotelDocs);
+    }
+
+    /**
+     * 分页查询
+     * @param text
+     * @param bean
+     * @throws IOException
+     */
+    private void pageQuery(String text, ResponseBean bean) throws IOException {
+        SearchRequest request = new SearchRequest("hotel");
+        request.source().query(QueryBuilders.matchQuery("hotelName", text)).from(0).size(3);
+        SearchResponse search = es.search(request, RequestOptions.DEFAULT);
+        SearchHit[] hits = search.getHits().getHits();
+        ArrayList<HotelDoc> hotelDocs = new ArrayList<>();
+        for (SearchHit hit : hits) {
+            hotelDocs.add(JSONUtil.toBean(hit.getSourceAsString(), HotelDoc.class));
+        }
+        bean.setData(hotelDocs);
     }
 
     /**
