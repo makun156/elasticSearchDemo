@@ -16,6 +16,8 @@ import org.elasticsearch.client.indices.GetIndexRequest;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.AggregationBuilder;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortOrder;
@@ -82,17 +84,59 @@ public class HotelController {
     public ResponseBean search(@PathVariable String text) throws Exception {
         ResponseBean bean = new ResponseBean();
         //ResponseBean bean = matchQuery(text);
+
         //ResponseBean bean = multiMatchQuery(text);
+
         //boolQuery(text,bean);
+
         //termQuery(text, bean);
+
         //rangeQuery(bean);
-        //List<HotelDoc> hotelDocs = search.matchQuery("hotel", "hotelName", text, HotelDoc.class);
+
         //pageQuery(text, bean);
+
         //sortQuery(text, bean);
-        highlightQuery(text, bean);
+
+        //highlightQuery(text, bean);
+
+        //List<HotelDoc> hotelDocs = search.matchQuery("hotel1", "hotelName", text, HotelDoc.class);
+
+        //List<HotelDoc> hotelDocList = search.boolQuery("hotel", HotelDoc.class, ele -> {
+        //    ele.source().query(
+        //            QueryBuilders.boolQuery().must(QueryBuilders.matchQuery("hotelName", text))
+        //                    .must(QueryBuilders.rangeQuery("price").lte(500))
+        //    );
+        //});
+
+        SearchRequest request = new SearchRequest("hotel");
+        request.source().query(QueryBuilders.matchQuery("hotelName", text)).sort("price", SortOrder.DESC).size(0);
+        //聚合函数
+        request.source().aggregation(
+                //term聚合函数精确分组，按照字段值进行分组
+                AggregationBuilders.terms("startAgg").field("start")
+                        //基于term分组后进行stats统计聚合（包含avg，max，min等）
+                        .subAggregation(AggregationBuilders.stats("priceAgg").field("price")));
+        SearchResponse search = es.search(request, RequestOptions.DEFAULT);
+        SearchHit[] hits = search.getHits().getHits();
+        ArrayList<HotelDoc> hotelDocs = new ArrayList<>();
+        for (SearchHit hit : hits) {
+            hotelDocs.add(JSONUtil.toBean(hit.getSourceAsString(), HotelDoc.class));
+            Map<String, HighlightField> highlightFields = hit.getHighlightFields();
+            for (HighlightField highlightField : highlightFields.values()) {
+                String hotelName = highlightField.getFragments()[0].string();
+                hotelDocs.get(hotelDocs.size() - 1).setHotelName(hotelName);
+            }
+        }
+        bean.setData(hotelDocs);
         return bean;
     }
 
+    /**
+     * 高亮查询
+     * @param text
+     * @param bean
+     * @throws IOException
+     */
     private void highlightQuery(String text, ResponseBean bean) throws IOException {
         SearchRequest request = new SearchRequest("hotel");
         request.source().query(QueryBuilders.matchQuery("hotelName", text)).sort("price", SortOrder.DESC);
