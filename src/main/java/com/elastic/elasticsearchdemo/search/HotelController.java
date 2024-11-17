@@ -2,6 +2,7 @@ package com.elastic.elasticsearchdemo.search;
 
 import cn.hutool.json.JSONUtil;
 import com.elastic.elasticsearchdemo.bean.ClassDoc;
+import com.elastic.elasticsearchdemo.bean.HotelAggDoc;
 import com.elastic.elasticsearchdemo.bean.HotelDoc;
 import com.elastic.elasticsearchdemo.response.ResponseBean;
 import com.elastic.elasticsearchdemo.util.EsUtils;
@@ -16,32 +17,43 @@ import org.elasticsearch.client.indices.GetIndexRequest;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.Aggregations;
+import org.elasticsearch.search.aggregations.bucket.terms.ParsedLongTerms;
+import org.elasticsearch.search.aggregations.bucket.terms.Terms;
+import org.elasticsearch.search.aggregations.metrics.ParsedStats;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortOrder;
+import org.elasticsearch.search.suggest.SuggestBuilder;
+import org.elasticsearch.search.suggest.SuggestBuilders;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+//import org.springframework.data.redis.core.RedisTemplate;
+//import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
+
 @RestController
 @RequestMapping("/document/hotel")
 public class HotelController {
     @Autowired
     RestHighLevelClient es;
-
+    @Autowired
+    StringRedisTemplate redis;
     @Autowired
     EsUtils search;
+
     @GetMapping("add")
-    public String add() throws Exception{
+    public String add() throws Exception {
         //CreateIndexRequest hotelIndex = new CreateIndexRequest("hotel");
         //hotelIndex.mapping("{\n" +
         //        "    \"mappings\": {\n" +
@@ -72,16 +84,18 @@ public class HotelController {
         //        "    }\n" +
         //        "}",XContentType.JSON);
         //es.indices().create(hotelIndex, RequestOptions.DEFAULT);
-        List<HotelDoc> hotelDocs = generateHotelData(100);
-        for (HotelDoc hotelDoc : hotelDocs) {
-            IndexRequest request = new IndexRequest("hotel").id(hotelDoc.getId().toString());
-            request.source(JSONUtil.toJsonStr(hotelDoc), XContentType.JSON);
-            es.index(request, RequestOptions.DEFAULT);
-        }
+        //List<HotelDoc> hotelDocs = generateHotelData(100);
+        //for (HotelDoc hotelDoc : hotelDocs) {
+        //    IndexRequest request = new IndexRequest("hotel").id(hotelDoc.getId().toString());
+        //    request.source(JSONUtil.toJsonStr(hotelDoc), XContentType.JSON);
+        //    es.index(request, RequestOptions.DEFAULT);
+        //}
         return "ok";
     }
     @GetMapping("/search/{text}")
     public ResponseBean search(@PathVariable String text) throws Exception {
+        int length = text.indexOf(".");
+        System.out.println(length);
         ResponseBean bean = new ResponseBean();
         //ResponseBean bean = matchQuery(text);
 
@@ -107,9 +121,22 @@ public class HotelController {
         //                    .must(QueryBuilders.rangeQuery("price").lte(500))
         //    );
         //});
+        SearchRequest suggest = new SearchRequest("suggest");
+        suggest.source().suggest(
+                new SuggestBuilder().addSuggestion(
+                        "mySuggest",
+                        SuggestBuilders.completionSuggestion("suggest").skipDuplicates(true).prefix(text))
+        ).size(5);
+        SearchResponse search1 = es.search(suggest, RequestOptions.DEFAULT);
+        //aggregationQuery(text, bean);
+        return bean;
+    }
 
+    private void aggregationQuery(String text, ResponseBean bean) throws IOException {
         SearchRequest request = new SearchRequest("hotel");
-        request.source().query(QueryBuilders.matchQuery("hotelName", text)).sort("price", SortOrder.DESC).size(0);
+        request.source().query(
+                QueryBuilders.matchQuery("hotelName", text)
+        ).sort("price", SortOrder.DESC).size(0);
         //聚合函数
         request.source().aggregation(
                 //term聚合函数精确分组，按照字段值进行分组
@@ -117,18 +144,31 @@ public class HotelController {
                         //基于term分组后进行stats统计聚合（包含avg，max，min等）
                         .subAggregation(AggregationBuilders.stats("priceAgg").field("price")));
         SearchResponse search = es.search(request, RequestOptions.DEFAULT);
-        SearchHit[] hits = search.getHits().getHits();
-        ArrayList<HotelDoc> hotelDocs = new ArrayList<>();
-        for (SearchHit hit : hits) {
-            hotelDocs.add(JSONUtil.toBean(hit.getSourceAsString(), HotelDoc.class));
-            Map<String, HighlightField> highlightFields = hit.getHighlightFields();
-            for (HighlightField highlightField : highlightFields.values()) {
-                String hotelName = highlightField.getFragments()[0].string();
-                hotelDocs.get(hotelDocs.size() - 1).setHotelName(hotelName);
+        List<HotelAggDoc> hotelAggDocs = new ArrayList<>();
+        Aggregations aggregations = search.getAggregations();
+        Collection<Aggregation> aggregationCollection = aggregations.getAsMap().values();
+        for (Aggregation aggregation : aggregationCollection) {
+            ParsedLongTerms terms =(ParsedLongTerms)aggregation;
+            List<? extends Terms.Bucket> buckets = terms.getBuckets();
+            for (Terms.Bucket bucket : buckets) {
+                Collection<Aggregation> values = bucket.getAggregations().getAsMap().values();
+                values.forEach(agg ->{
+                    ParsedStats stats = (ParsedStats)agg;
+                    double avg = stats.getAvg();
+                    long count = stats.getCount();
+                    double max = stats.getMax();
+                    double min = stats.getMin();
+                    HotelAggDoc hotelAggDoc = new HotelAggDoc();
+                    hotelAggDoc.aggName = bucket.getKeyAsString();
+                    hotelAggDoc.avg = avg;
+                    hotelAggDoc.max = max;
+                    hotelAggDoc.min = min;
+                    hotelAggDoc.count = count;
+                    hotelAggDocs.add(hotelAggDoc);
+                });
             }
         }
-        bean.setData(hotelDocs);
-        return bean;
+        bean.setData(hotelAggDocs);
     }
 
     /**
