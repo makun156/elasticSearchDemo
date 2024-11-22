@@ -1,28 +1,26 @@
-package com.elastic.elasticsearchdemo.search;
+package com.elastic.elasticsearchdemo.web;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.date.DateUtil;
-import cn.hutool.json.JSONUtil;
 import com.elastic.elasticsearchdemo.bean.Food;
 import com.elastic.elasticsearchdemo.bean.FoodDoc;
-import com.elastic.elasticsearchdemo.constant.CommonConstant;
+import com.elastic.elasticsearchdemo.bean.SuggestDoc;
 import com.elastic.elasticsearchdemo.enums.ResponseEnum;
 import com.elastic.elasticsearchdemo.response.ResponseBean;
 import com.elastic.elasticsearchdemo.service.FoodService;
 import com.elastic.elasticsearchdemo.util.EsUtils;
+import com.elastic.elasticsearchdemo.util.MinIoUtils;
 import io.minio.*;
-import io.minio.errors.*;
 import io.minio.http.Method;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+
+import static com.elastic.elasticsearchdemo.constant.CommonConstant.INDEX_NAME;
 
 @Slf4j
 @RestController
@@ -62,9 +60,11 @@ public class FoodController {
     @Autowired
     FoodService foodService;
     @Autowired
-    MinioClient minio;
+    MinioClient minioClient;
     @Autowired
     EsUtils es;
+    @Autowired
+    MinIoUtils minio;
 
     /**
      * 添加菜品
@@ -74,13 +74,38 @@ public class FoodController {
      * @throws Exception
      */
     @PostMapping("add")
-    public ResponseBean add(@RequestBody Food requestFood) throws Exception {
-        boolean save = foodService.save(requestFood);
-        if (!save) {
+    public ResponseBean add(@RequestBody Food requestFood) {
+        try {
+            //String imgUrl = minio.getObjectUrl(INDEX_NAME, requestFood.getFoodImages());
+            //requestFood.setFoodImages(imgUrl);
+            boolean save = foodService.save(requestFood);
+            if (!save) {
+                return ResponseBean.fail(ResponseEnum.FAIL);
+            }
+            es.addDocument("food", BeanUtil.toBean(requestFood, FoodDoc.class));
+            SuggestDoc suggestDoc = new SuggestDoc();
+            suggestDoc.setFoodName(requestFood.getFoodName());
+            es.addSuggest("suggest", suggestDoc);
+            log.info("添加成功");
+
+            //List<Food> all = foodService.getAll();
+            //all.forEach(item-> {
+            //    try {
+            //        es.addDocument("food", BeanUtil.toBean(requestFood, FoodDoc.class));
+            //        SuggestDoc suggestDoc = new SuggestDoc();
+            //        suggestDoc.setFoodName(requestFood.getFoodName());
+            //        es.addSuggest("suggest", suggestDoc);
+            //        log.info("添加成功");
+            //    } catch (Exception e) {
+            //        e.printStackTrace();
+            //    }
+            //});
+            //es.addDocument("food", BeanUtil.toBean(requestFood, FoodDoc.class));
+            return ResponseBean.success(ResponseEnum.SUCCESS);
+        } catch (Exception e) {
+            log.error("添加菜品发生异常,原因:{}", e.getMessage());
             return ResponseBean.fail(ResponseEnum.FAIL);
         }
-        es.addDocument("food", BeanUtil.toBean(requestFood, FoodDoc.class));
-        return ResponseBean.success(ResponseEnum.SUCCESS);
     }
 
     /**
@@ -90,8 +115,8 @@ public class FoodController {
      * @return
      * @throws Exception
      */
-    @GetMapping("search/{id}")
-    public ResponseBean search(@RequestParam("${id}") String foodId) throws Exception {
+    @GetMapping("{id}")
+    public ResponseBean search(@PathVariable("id") String foodId) throws Exception {
         Food food = foodService.getById(foodId);
         return ResponseBean.success(food);
     }
@@ -102,7 +127,7 @@ public class FoodController {
      * @return
      * @throws Exception
      */
-    @GetMapping("search")
+    @GetMapping("list")
     public ResponseBean searchAll() throws Exception {
         List<Food> foodList = foodService.list();
         return ResponseBean.success(foodList);
@@ -110,13 +135,14 @@ public class FoodController {
 
     /**
      * 文件上传
+     *
      * @param file
      * @return
      */
     @PostMapping("upload")
     public ResponseBean upload(@RequestParam("file") MultipartFile file) {
         try {
-            boolean bucketExists = minio.bucketExists(BucketExistsArgs.builder().bucket(CommonConstant.INDEX_NAME).build());
+            boolean bucketExists = minioClient.bucketExists(BucketExistsArgs.builder().bucket(INDEX_NAME).build());
             if (!bucketExists) {
                 return ResponseBean.fail(ResponseEnum.FAIL);
             }
@@ -124,21 +150,21 @@ public class FoodController {
             String randomName = UUID.randomUUID().toString().replaceAll("-", "");
             String objectName = todayDate + "/" + randomName;
             PutObjectArgs build = PutObjectArgs.builder()
-                    .bucket(CommonConstant.INDEX_NAME)
+                    .bucket(INDEX_NAME)
                     .object(objectName)
                     .contentType(file.getContentType())
                     .stream(file.getInputStream(), file.getSize(), ObjectWriteArgs.MAX_PART_SIZE).build();
-            minio.putObject(build);
+            minioClient.putObject(build);
             log.info("文件上传成功!");
             GetPresignedObjectUrlArgs args = GetPresignedObjectUrlArgs.builder()
                     .method(Method.GET)
-                    .bucket(CommonConstant.INDEX_NAME)
-                    .object(objectName)
+                    .bucket(INDEX_NAME)
+                    .object(objectName).expiry(3, TimeUnit.MINUTES)
                     .build();
-            String presignedObjectUrl = minio.getPresignedObjectUrl(args);
-            return ResponseBean.success(randomName);
+            String presignedObjectUrl = minioClient.getPresignedObjectUrl(args);
+            return ResponseBean.success(objectName);
         } catch (Exception e) {
-            log.error("上传文件发生错误,原因:{}",e.getMessage());
+            log.error("上传文件发生错误,原因:{}", e.getMessage());
             return ResponseBean.fail(ResponseEnum.FAIL);
         }
     }

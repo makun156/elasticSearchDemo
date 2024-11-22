@@ -1,26 +1,20 @@
-package com.elastic.elasticsearchdemo.search;
+package com.elastic.elasticsearchdemo.web;
 
 
 import cn.hutool.json.JSONUtil;
 import com.elastic.elasticsearchdemo.bean.ClassDoc;
 import com.elastic.elasticsearchdemo.response.ResponseBean;
-import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
-import org.elasticsearch.action.get.GetRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.SearchHits;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.function.Function;
 
 @RestController
 @RequestMapping("/document/class")
