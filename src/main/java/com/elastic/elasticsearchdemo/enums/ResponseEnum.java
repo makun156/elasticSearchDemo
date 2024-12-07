@@ -2,6 +2,7 @@ package com.elastic.elasticsearchdemo.enums;
 public enum ResponseEnum {
     SUCCESS(200,"操作成功"),
     FAIL(200,"操作失败"),
+    LOGIN_FAIL(201,"登录失败"),
     PARAM_ERROR(400,"参数错误"),
     NOT_LOGIN(401,"未登录"),
     NOT_PERMISSION(403,"无权限"),

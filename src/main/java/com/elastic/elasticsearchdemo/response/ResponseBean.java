@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 public class ResponseBean {
     private boolean flag=true;
     private Integer code;
-    private String msg;
+    private String message;
     private Object data;
     public static ResponseBean success(Object data){
         return new ResponseBean(true, ResponseEnum.SUCCESS.getCode(),ResponseEnum.SUCCESS.getMsg(),data);
